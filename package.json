@@ -1,0 +1,15 @@
+{
+  "name": "ali-oss-uploader-node",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ali-oss": "^6.23.0",
+    "inquirer": "^8.2.6"
+  }
+}
