@@ -9,6 +9,8 @@ const {
   uploadFileStream,
 } = require("./common/ali-oss-uploader");
 const { ensureDirExists } = require("./common/file");
+const { getLocalIPs } = require("./common/os");
+const { ipPrefix } = require("../data/config.json");
 
 // 文件上传目录
 const uploadDir = path.join(__dirname, "../../uploads");
@@ -124,6 +126,9 @@ app.use(async (ctx) => {
 
 const port = 18400;
 
+const ip = getLocalIPs()?.filter((it) => it.startsWith(ipPrefix))?.[0];
+const host = `${ip}:${port}`;
+
 app.listen(port, () => {
-  console.info("Koa 文件上传服务运行在 http://localhost:" + port);
+  console.info(`Koa 文件上传服务运行在: ${host}`);
 });
