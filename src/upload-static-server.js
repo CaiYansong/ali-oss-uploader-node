@@ -127,7 +127,7 @@ app.use(async (ctx) => {
 const port = 18400;
 
 const ip = getLocalIPs()?.filter((it) => it.startsWith(ipPrefix))?.[0];
-const host = `${ip}:${port}`;
+const host = `http://${ip}:${port}`;
 
 app.listen(port, () => {
   console.info(`Koa 文件上传服务运行在: ${host}`);
