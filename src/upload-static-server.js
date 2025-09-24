@@ -130,5 +130,5 @@ const ip = getLocalIPs()?.filter((it) => it.startsWith(ipPrefix))?.[0];
 const host = `http://${ip}:${port}`;
 
 app.listen(port, () => {
-  console.info(`Koa 文件上传服务运行在: ${host}`);
+  console.info(`Koa 文件上传服务运行在: ${host} \n 上传页面地址：${host}/upload-static.html`);
 });
