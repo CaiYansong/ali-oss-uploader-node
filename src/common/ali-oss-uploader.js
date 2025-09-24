@@ -1,14 +1,17 @@
 const AliOSS = require("ali-oss");
-const fs = require("fs").promises;
+const fsP = require("fs").promises;
 const path = require("path");
 const posixPath = require("path").posix; // 用于处理 POSIX 风格路径（正斜杠）
 
-const config = require("../data/config");
+const config = require("../../data/config");
 
 // 核心配置
 const CONCURRENT_LIMIT = 10; // 降低并发数（从5→3，减少网络压力）
 const MAX_RETRIES = 3; // 最大重试次数（网络错误时重试）
 const RETRY_DELAY_BASE = 1000; // 重试基础延迟（毫秒），采用指数退避策略
+
+console.info("当前 OSS region: ", config.region);
+console.info("当前 OSS bucket: ", config.bucket);
 
 /**
  * ali oss 配置信息
@@ -35,17 +38,90 @@ function convertToOSSPath(windowsPath) {
  * @returns {Promise<boolean>} - 存在返回 true，不存在返回 false
  */
 async function checkFileExists(ossFilePath) {
+  // 路径转为 oss 的格式，解决 win 路径导致上传结果没有分文件夹的问题
+  const _ossFilePath = convertToOSSPath(ossFilePath);
+
   try {
-    await aliOssClient.head(ossFilePath);
-    return true; // 文件存在
+    const res = await aliOssClient.head(_ossFilePath);
+    return res.res; // 文件存在
   } catch (error) {
     // 明确处理 "文件不存在" 的情况（NoSuchKey 是正常预期，非错误）
     if (error.code === "NoSuchKey") {
       return false;
     }
     // 其他错误（如网络问题、权限问题等）才视为检查失败
-    console.error(`检查文件存在时发生异常: ${ossFilePath}`, error.message);
+    console.error(`检查文件存在时发生异常: ${_ossFilePath}`, error.message);
     throw error; // 抛出非 "文件不存在" 的错误
+  }
+}
+
+/**
+ * 上传单个文件到 OSS，存在则跳过
+ * @param {File} file - 文件
+ * @param {string} ossFilePath - OSS文件路径
+ * @returns {Promise<Object>} - 上传结果
+ */
+async function uploadFileStream(name, stream, ossFilePath, opt) {
+  const {
+    /** 是否覆盖 */
+    isCover,
+  } = opt || {};
+  // 路径转为 oss 的格式，解决 win 路径导致上传结果没有分文件夹的问题
+  const _ossFilePath = convertToOSSPath(ossFilePath);
+  if (!isCover) {
+    const exists = await checkFileExists(_ossFilePath);
+
+    if (exists) {
+      console.info(`uploadFileStream 已存在文件: ${_ossFilePath}`);
+      return { url: exists.requestUrls?.[0], name: _ossFilePath, exists: true };
+    }
+  }
+
+  try {
+    const result = await aliOssClient.putStream(_ossFilePath, stream);
+    console.info(`上传成功: ${name} -> ${result.name}`);
+    return result;
+  } catch (error) {
+    console.error(`上传失败: ${name}`, error);
+    throw error;
+  }
+}
+
+/**
+ * 上传单个文件到 OSS，存在则跳过
+ * @param {string} name - 文件名称
+ * @param {Buffer} buffer - 文件 Buffer
+ * @param {string} ossFilePath - OSS文件路径
+ * @returns {Promise<Object>} - 上传结果
+ */
+async function uploadFileBuffer(name, buffer, ossFilePath, opt) {
+  const {
+    /** 是否覆盖 */
+    isCover,
+  } = opt || {};
+  // 路径转为 oss 的格式，解决 win 路径导致上传结果没有分文件夹的问题
+  const _ossFilePath = convertToOSSPath(ossFilePath);
+  if (!isCover) {
+    const exists = await checkFileExists(_ossFilePath);
+
+    if (exists) {
+      console.info(`uploadFileBuffer 已存在文件: ${_ossFilePath}`);
+      return { url: exists.requestUrls?.[0], name: _ossFilePath, exists: true };
+    }
+  }
+
+  if (exists) {
+    console.info(`uploadFileBuffer 已存在文件: ${_ossFilePath}`);
+    return { url: exists.requestUrls?.[0], name: _ossFilePath, exists: true };
+  }
+
+  try {
+    const result = await aliOssClient.put(_ossFilePath, buffer);
+    console.info(`上传成功: ${name} -> ${result.name}`);
+    return result;
+  } catch (error) {
+    console.error(`上传失败: ${name}`, error);
+    throw error;
   }
 }
 
@@ -55,19 +131,25 @@ async function checkFileExists(ossFilePath) {
  * @param {string} ossFilePath - OSS文件路径
  * @returns {Promise<Object>} - 上传结果
  */
-async function uploadFile(localFilePath, ossFilePath) {
+async function uploadLocalFile(localFilePath, ossFilePath, opt) {
+  const {
+    /** 是否覆盖 */
+    isCover = false,
+  } = opt || {};
   const _ossFilePath = convertToOSSPath(ossFilePath);
-  const exists = await checkFileExists(_ossFilePath);
+  if (!isCover) {
+    const exists = await checkFileExists(_ossFilePath);
 
-  if (exists) {
-    console.log(`跳过已存在文件: ${_ossFilePath}`);
-    return { name: _ossFilePath, exists: true };
+    if (exists) {
+      console.info(`uploadLocalFile 已存在文件: ${_ossFilePath}`);
+      return { url: exists.requestUrls?.[0], name: _ossFilePath, exists: true };
+    }
   }
 
   try {
     // 路径转为 oss 的格式，解决 win 路径导致上传结果没有分文件夹的问题
     const result = await aliOssClient.put(_ossFilePath, localFilePath);
-    console.log(`上传成功: ${localFilePath} -> ${result.name}`);
+    console.info(`上传成功: ${localFilePath} -> ${result.name}`);
     return result;
   } catch (error) {
     console.error(`上传失败: ${localFilePath}`, error);
@@ -81,7 +163,7 @@ async function uploadFile(localFilePath, ossFilePath) {
  * @param {string} ossDir - OSS目录路径
  */
 async function traverseDirectory(localDir, ossDir = "") {
-  const entries = await fs.readdir(localDir, { withFileTypes: true });
+  const entries = await fsP.readdir(localDir, { withFileTypes: true });
 
   for (const entry of entries) {
     const localPath = path.join(localDir, entry.name);
@@ -92,7 +174,7 @@ async function traverseDirectory(localDir, ossDir = "") {
       await traverseDirectory(localPath, ossPath);
     } else {
       // 上传文件
-      await uploadFile(localPath, ossPath);
+      await uploadLocalFile(localPath, ossPath);
     }
   }
 }
@@ -211,7 +293,7 @@ async function uploadSingleFileWithRetry(
  */
 async function collectAllFiles(localDir, ossBaseDir = "") {
   const files = [];
-  const entries = await fs.readdir(localDir, { withFileTypes: true });
+  const entries = await fsP.readdir(localDir, { withFileTypes: true });
 
   for (const entry of entries) {
     const localPath = path.join(localDir, entry.name);
@@ -240,7 +322,7 @@ async function uploadFilesConcurrently(fileList, opt) {
       (result) => {
         executing.splice(executing.indexOf(task), 1);
         results.push(result);
-        console.log(
+        console.info(
           `[${results.length}/${fileList.length}] ${result.message}: ${result.path}`
         );
       }
@@ -268,7 +350,7 @@ async function traverseDirectoryWithRetry(localDir, ossDir = "", opt) {
     const { concurrentLimit = CONCURRENT_LIMIT, maxRetries = MAX_RETRIES } =
       opt || {};
     const allFiles = await collectAllFiles(localDir, ossDir);
-    console.log(
+    console.info(
       `共发现 ${allFiles.length} 个文件，开始上传（并发数：${concurrentLimit}，重试次数：${maxRetries}）...`
     );
 
@@ -279,17 +361,17 @@ async function traverseDirectoryWithRetry(localDir, ossDir = "", opt) {
     const skippedCount = uploadResults.filter((r) => r.skipped).length;
     const failedCount = uploadResults.filter((r) => !r.success).length;
 
-    console.log("\n===== 上传完成 =====");
-    console.log(`总文件数: ${allFiles.length}`);
-    console.log(`成功上传: ${successCount - skippedCount}`);
-    console.log(`已跳过: ${skippedCount}`);
-    console.log(`最终失败: ${failedCount}`);
+    console.info("\n===== 上传完成 =====");
+    console.info(`总文件数: ${allFiles.length}`);
+    console.info(`成功上传: ${successCount - skippedCount}`);
+    console.info(`已跳过: ${skippedCount}`);
+    console.info(`最终失败: ${failedCount}`);
 
     if (failedCount > 0) {
-      console.log("\n失败文件列表:");
+      console.info("\n失败文件列表:");
       uploadResults
         .filter((r) => !r.success)
-        .forEach((r) => console.log(`- ${r.path}: ${r.message}`));
+        .forEach((r) => console.info(`- ${r.path}: ${r.message}`));
     }
   } catch (error) {
     console.error("致命错误:", error);
@@ -301,7 +383,9 @@ module.exports = {
   aliOssClient,
   convertToOSSPath,
   checkFileExists,
-  uploadFile,
+  uploadFileBuffer,
+  uploadFileStream,
+  uploadLocalFile,
   traverseDirectory,
   checkFileExistsWithRetry,
   uploadSingleFileWithRetry,

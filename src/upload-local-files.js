@@ -2,16 +2,16 @@ const fs = require("fs");
 const fsPromise = require("fs").promises;
 const path = require("path");
 
-const { getConfig } = require("./input");
+const { getConfig } = require("./common/input");
 
 const logFile = path.join(__dirname, "../data/log.json");
 
 const {
-  uploadFile,
+  uploadLocalFile,
   traverseDirectory,
   uploadSingleFileWithRetry,
   traverseDirectoryWithRetry,
-} = require("./ali-oss-uploader");
+} = require("./common/ali-oss-uploader");
 
 /**
  * 遍历目录并调用递归上传文件
@@ -43,12 +43,12 @@ async function traverseCurDirectory(localDir, ossDir = "", opt) {
       await traverseDirectory(localPath, ossPath);
     } else {
       // 上传文件
-      await uploadFile(localPath, ossPath);
+      await uploadLocalFile(localPath, ossPath);
     }
     // 存储已上传的文件夹，后续直接跳过
     log.push(logVal);
     fs.writeFileSync(logFile, JSON.stringify(log, " ", 2), (res) => {
-      console.log("res", res);
+      console.info("res", res);
     });
   }
 }
@@ -97,7 +97,7 @@ async function traverseCurDirectoryWithRetry(localDir, ossDir = "", opt) {
     // 存储已上传的文件夹，后续直接跳过
     log.push(logVal);
     fs.writeFileSync(logFile, JSON.stringify(log, " ", 2), (res) => {
-      console.log("res", res);
+      console.info("res", res);
     });
   }
 }
@@ -123,7 +123,7 @@ async function main() {
     await traverseCurDirectoryWithRetry(sourceDir.trim(), targetDir.trim(), {
       ...data,
     });
-    console.log("全部文件上传完成");
+    console.info("全部文件上传完成");
   } catch (error) {
     console.error("上传过程中发生错误:", error);
     process.exit(1);

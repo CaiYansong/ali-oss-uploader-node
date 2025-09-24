@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文件上传 Demo</title>
+</head>
+
+<body style="margin: 40px">
+  <div>
+    文件：
+    <input type="file" name="file" id="fileInput" />
+  </div>
+  <div>
+    存储地址（相对 oss /assets/ 文件夹目录）：
+    <input id="targetPath" value="" />
+  </div>
+  <div>
+    是否替换（传 文件全称 为替换）：
+    <input id="is-replace-ipt" value="" />
+  </div>
+  <button id="submit-btn" type="submit">上传</button>
+  <br />
+  <br />
+  <div id="progress" style="white-space: break-spaces;"></div>
+
+  <script>
+    const submitBtn = document.getElementById('submit-btn');
+    const progressDiv = document.getElementById('progress');
+    const targetPathIpt = document.getElementById('targetPath');
+    const isReplaceIpt = document.getElementById('is-replace-ipt');
+    submitBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      progressDiv.innerText = "";
+
+      submitBtn.setAttribute('disabled', true);
+      const fileInput = document.getElementById('fileInput');
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('targetPath', targetPathIpt.value);
+      formData.append('isReplace', isReplaceIpt.value);
+
+      try {
+        const response = await fetch('./upload-static', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await response.json();
+        console.info('上传结果:', result);
+        progressDiv.innerText = "上传结果\n" + JSON.stringify(result, null, 2)
+      } catch (error) {
+        console.error('上传失败:', error);
+        progressDiv.innerText = "上传失败\n" + JSON.stringify(result, null, 2)
+      }
+      isReplaceIpt.value = "";
+      submitBtn.removeAttribute('disabled');
+    });
+  </script>
+</body>
+
+</html>

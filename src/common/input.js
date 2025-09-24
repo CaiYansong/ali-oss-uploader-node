@@ -4,7 +4,7 @@ const inquirer = require("inquirer"); // 交互式命令行输入库
 const { existsSync } = require("fs"); // 用于同步检查文件是否存在
 
 // 配置文件路径（保存到当前目录的 config.json）
-const CONFIG_FILE = path.join(__dirname, "../data/config.json");
+const CONFIG_FILE = path.join(__dirname, "../../data/config.json");
 
 /**
  * 读取上次保存的配置（若存在）
@@ -33,7 +33,7 @@ async function saveConfig(config) {
       JSON.stringify(config, null, 2), // 格式化JSON，便于阅读
       () => {}
     );
-    console.log(`配置已保存到 ${CONFIG_FILE}`);
+    console.info(`配置已保存到 ${CONFIG_FILE}`);
   } catch (error) {
     console.warn("保存配置失败：", error.message);
   }
