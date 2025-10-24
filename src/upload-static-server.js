@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const Koa = require("koa");
 const { koaBody } = require("koa-body");
+const { LogUtils } = require("./common/log");
 
 const {
   convertToOSSPath,
@@ -19,6 +20,10 @@ ensureDirExists(uploadDir);
 const OSS_DIR = "/assets/";
 
 const app = new Koa();
+
+const logUtils = new LogUtils(
+  path.join(__dirname, "../data/upload-static-server.logs.json")
+);
 
 // 配置 CORS 选项
 const cors = require("@koa/cors"); // 引入CORS中间件
@@ -115,6 +120,7 @@ app.use(async (ctx) => {
       };
       return;
     }
+    logUtils.setLog(resData);
 
     ctx.body = {
       code: 200,
@@ -130,5 +136,7 @@ const ip = getLocalIPs()?.filter((it) => it.startsWith(ipPrefix))?.[0];
 const host = `http://${ip}:${port}`;
 
 app.listen(port, () => {
-  console.info(`Koa 文件上传服务运行在: ${host} \n 上传页面地址：${host}/upload-static.html`);
+  console.info(
+    `Koa 文件上传服务运行在: ${host} \n 上传页面地址：${host}/upload-static.html`
+  );
 });
