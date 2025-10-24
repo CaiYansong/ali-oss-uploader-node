@@ -21,9 +21,9 @@ const OSS_DIR = "/assets/";
 
 const app = new Koa();
 
-const logUtils = new LogUtils(
-  path.join(__dirname, "../data/upload-static-server.logs.json")
-);
+const logUtils = new LogUtils({
+  filePath: path.join(__dirname, "../data/upload-static-server.logs.json"),
+});
 
 // 配置 CORS 选项
 const cors = require("@koa/cors"); // 引入CORS中间件
