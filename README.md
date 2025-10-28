@@ -4,6 +4,8 @@
 
 #### data 下的配置文件
 
+- endpoint 必须加上 https，避免默认配置改动导致变化
+
 ```config.json
 {
   "sourceDir": "",
@@ -11,14 +13,16 @@
   "concurrentLimit": "10",
   "maxRetries": 3,
   "logLevel": 1,
-  "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+  "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
   "accessKeyId": "",
   "accessKeySecret": "",
   "bucket": "",
   "region": "oss-cn-hangzhou",
+  "authorizationV4": true,
   "concurrency": null,
   "timeout": 30000,
   "protocol": "https"
+  "ipPrefix": ""
 }
 ```
 

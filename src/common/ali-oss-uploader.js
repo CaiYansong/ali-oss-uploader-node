@@ -21,6 +21,8 @@ const aliOssClient = new AliOSS({
   accessKeyId: config.accessKeyId,
   accessKeySecret: config.accessKeySecret,
   bucket: config.bucket,
+  endpoint: config.endpoint,
+  secure: true,
 });
 
 /**
