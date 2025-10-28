@@ -54,7 +54,7 @@
         console.error('上传失败:', error);
         progressDiv.innerText = "上传失败\n" + JSON.stringify(result, null, 2)
       }
-      if (isReplaceIpt.value) {
+      if (isReplaceIpt?.value) {
         isReplaceIpt.value = "";
       }
       submitBtn.removeAttribute('disabled');
