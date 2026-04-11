@@ -12,7 +12,7 @@
       <input type="file" name="file" id="fileInput" />
     </div>
     <div>
-      存储地址（相对 oss /assets/ 文件夹目录）：
+      存储地址（相对 oss 根目录）：
       <input id="targetPath" value="" />
     </div>
     <!-- <div>
@@ -41,7 +41,7 @@
         formData.append("isReplace", isReplaceIpt?.value);
 
         try {
-          const response = await fetch("./upload-assets", {
+          const response = await fetch("./upload-base", {
             method: "POST",
             body: formData,
           });

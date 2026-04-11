@@ -17,8 +17,6 @@ const { ipPrefix } = require("../data/config.json");
 const uploadDir = path.join(__dirname, "../../uploads");
 ensureDirExists(uploadDir);
 
-const OSS_DIR = "/assets/";
-
 const app = new Koa();
 
 const logUtils = new LogUtils({
@@ -34,7 +32,7 @@ app.use(
     allowHeaders: ["Content-Type", "Authorization", "Accept"], // 允许的请求头
     exposeHeaders: ["Content-Length", "Date", "X-Request-Id"], // 暴露给客户端的响应头
     credentials: true, // 是否允许发送Cookie
-  })
+  }),
 );
 
 // 配置静态资源目录
@@ -44,7 +42,7 @@ app.use(
     maxage: 86400000, // 缓存时间(ms)
     hidden: false, // 是否允许传输隐藏文件
     index: "index.html", // 默认文件名
-  })
+  }),
 );
 
 app.use(
@@ -59,32 +57,60 @@ app.use(
         console.info(`开始上传 ${file.name || file.originalFilename}`);
       },
     },
-  })
+  }),
 );
 
 app.use(async (ctx) => {
+  if (ctx.method === "POST" && ctx.url === "/upload-assets") {
+    return fileUpload(ctx, "/assets/");
+  }
+  if (ctx.method === "POST" && ctx.url === "/upload-base") {
+    return fileUpload(ctx, "/");
+  }
+});
+
+async function fileUpload(ctx, dir) {
   const reqBody = ctx.request.body;
-  if (ctx.method === "POST" && ctx.url === "/upload-static") {
-    // 文件上传
-    const file = ctx.request.files.file;
-    const targetPath = reqBody.targetPath;
-    const fileName = file.originalFilename || file.name;
-    // reqBody.targetPath
-    const targetDir = path.join(OSS_DIR, targetPath);
-    const targetFullPath = path.join(targetDir, fileName);
+  // 文件上传
+  const file = ctx.request.files.file;
+  const targetPath = reqBody.targetPath;
+  const fileName = file.originalFilename || file.name;
+  // reqBody.targetPath
+  const targetDir = path.join(dir, targetPath);
+  const targetFullPath = path.join(targetDir, fileName);
 
-    const hasFile = await checkFileExists(targetFullPath);
+  const hasFile = await checkFileExists(targetFullPath);
 
-    const resData = {
-      name: fileName,
-      size: file.size,
-      type: file.type,
-      url: convertToOSSPath(targetFullPath),
+  const resData = {
+    name: fileName,
+    size: file.size,
+    type: file.type,
+    url: convertToOSSPath(targetFullPath),
+  };
+
+  // 检查文件是否存在
+  if (hasFile && reqBody.isReplace !== fileName) {
+    resData.url = hasFile.requestUrls?.[0];
+    ctx.body = {
+      code: 500,
+      message: "文件已存在",
+      data: resData,
     };
+    return;
+  }
 
-    // 检查文件是否存在
-    if (hasFile && reqBody.isReplace !== fileName) {
-      resData.url = hasFile.requestUrls?.[0];
+  // 文件夹不存在上传或进行覆盖
+  try {
+    const readStream = fs.createReadStream(file.filepath);
+    const result = await uploadFileStream(
+      file.originalFilename,
+      readStream,
+      targetFullPath,
+      { isCover: true },
+    );
+    resData.url = result.url;
+
+    if (result.exists) {
       ctx.body = {
         code: 500,
         message: "文件已存在",
@@ -92,43 +118,22 @@ app.use(async (ctx) => {
       };
       return;
     }
-
-    // 文件夹不存在上传或进行覆盖
-    try {
-      const readStream = fs.createReadStream(file.filepath);
-      const result = await uploadFileStream(
-        file.originalFilename,
-        readStream,
-        targetFullPath,
-        { isCover: true }
-      );
-      resData.url = result.url;
-
-      if (result.exists) {
-        ctx.body = {
-          code: 500,
-          message: "文件已存在",
-          data: resData,
-        };
-        return;
-      }
-    } catch (error) {
-      ctx.body = {
-        code: 500,
-        message: JSON.stringify(error),
-        data: resData,
-      };
-      return;
-    }
-    logUtils.setLog(resData);
-
+  } catch (error) {
     ctx.body = {
-      code: 200,
-      message: "文件上传成功",
+      code: 500,
+      message: JSON.stringify(error),
       data: resData,
     };
+    return;
   }
-});
+  logUtils.setLog(resData);
+
+  ctx.body = {
+    code: 200,
+    message: "文件上传成功",
+    data: resData,
+  };
+}
 
 const port = 18400;
 
@@ -137,6 +142,6 @@ const host = `http://${ip}:${port}`;
 
 app.listen(port, () => {
   console.info(
-    `Koa 文件上传服务运行在: ${host} \n 上传页面地址：${host}/upload-static.html`
+    `Koa 文件上传服务运行在: ${host} \n 上传页面地址：${host}/upload-static.html`,
   );
 });
