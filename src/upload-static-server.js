@@ -72,7 +72,15 @@ app.use(async (ctx) => {
 async function fileUpload(ctx, dir) {
   const reqBody = ctx.request.body;
   // 文件上传
-  const file = ctx.request.files.file;
+  const file = ctx.request.files?.file;
+  if (!file) {
+    ctx.body = {
+      code: 500,
+      message: "请选择要上传的文件",
+      data: {},
+    };
+    return;
+  }
   const targetPath = reqBody.targetPath;
   const fileName = file.originalFilename || file.name;
   // reqBody.targetPath
