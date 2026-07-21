@@ -1,64 +1,252 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>文件上传 Demo</title>
+    <title>文件 / 文件夹上传（OSS 根目录）</title>
+    <style>
+      body {
+        margin: 40px;
+        font-family: system-ui, sans-serif;
+        line-height: 1.5;
+      }
+      .row {
+        margin-bottom: 12px;
+      }
+      label {
+        display: inline-block;
+        min-width: 140px;
+      }
+      #file-list {
+        max-height: 200px;
+        overflow: auto;
+        border: 1px solid #ccc;
+        padding: 8px;
+        font-size: 13px;
+        white-space: pre;
+        background: #fafafa;
+      }
+      #progress {
+        white-space: pre-wrap;
+        font-size: 13px;
+      }
+      .muted {
+        color: #666;
+        font-size: 13px;
+      }
+    </style>
   </head>
 
-  <body style="margin: 40px">
-    <div>
-      文件：
-      <input type="file" name="file" id="fileInput" />
+  <body>
+    <h2>上传到 OSS 根目录</h2>
+
+    <div class="row">
+      <label>上传模式</label>
+      <label
+        ><input type="radio" name="uploadMode" value="file" checked />
+        单文件</label
+      >
+      <label
+        ><input type="radio" name="uploadMode" value="folder" /> 文件夹</label
+      >
     </div>
-    <div>
-      存储地址（相对 oss 根目录）：
-      <input id="targetPath" value="" />
+
+    <div class="row">
+      <label>选择</label>
+      <input type="file" id="fileInput" />
+      <input type="file" id="folderInput" webkitdirectory multiple hidden />
     </div>
-    <!-- <div>
-    是否替换（传 文件全称 为替换）：
-    <input id="is-replace-ipt" value="" />
-  </div> -->
-    <button id="submit-btn" type="submit">上传</button>
-    <br />
-    <br />
-    <div id="progress" style="white-space: break-spaces"></div>
+
+    <div class="row">
+      <label>存储地址</label>
+      <input id="targetPath" value="" placeholder="相对 OSS 根目录，可为空" />
+      <div class="muted">最终路径 = targetPath + 相对路径（文件夹内路径）</div>
+    </div>
+
+    <div class="row">
+      <label>冲突策略</label>
+      <select id="overwritePolicy">
+        <option value="skip">跳过已存在</option>
+        <option value="overwrite">覆盖已存在</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label>并发数</label>
+      <input id="concurrency" type="number" min="1" max="10" value="3" />
+    </div>
+
+    <div class="row">
+      <button id="submit-btn" type="button">上传</button>
+    </div>
+
+    <div class="row">
+      <div class="muted">待上传文件预览</div>
+      <div id="file-list">未选择文件</div>
+    </div>
+
+    <div id="progress"></div>
 
     <script>
+      const UPLOAD_URL = "./upload-base";
+      const SKIP_NAMES = new Set([".DS_Store", "Thumbs.db"]);
+
       const submitBtn = document.getElementById("submit-btn");
       const progressDiv = document.getElementById("progress");
       const targetPathIpt = document.getElementById("targetPath");
-      const isReplaceIpt = document.getElementById("is-replace-ipt");
+      const overwritePolicySel = document.getElementById("overwritePolicy");
+      const concurrencyIpt = document.getElementById("concurrency");
+      const fileInput = document.getElementById("fileInput");
+      const folderInput = document.getElementById("folderInput");
+      const fileListDiv = document.getElementById("file-list");
+      const modeRadios = document.querySelectorAll('input[name="uploadMode"]');
+
+      function getMode() {
+        return document.querySelector('input[name="uploadMode"]:checked').value;
+      }
+
+      function syncModeUI() {
+        const isFolder = getMode() === "folder";
+        fileInput.hidden = isFolder;
+        folderInput.hidden = !isFolder;
+        renderPreview();
+      }
+
+      function getSelectedFiles() {
+        const input = getMode() === "folder" ? folderInput : fileInput;
+        return Array.from(input.files || []).filter(
+          (f) => !SKIP_NAMES.has(f.name),
+        );
+      }
+
+      function getRelativePath(file) {
+        if (getMode() === "folder" && file.webkitRelativePath) {
+          return file.webkitRelativePath.replace(/\\/g, "/");
+        }
+        return file.name;
+      }
+
+      function formatSize(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / 1024 / 1024).toFixed(2) + " MB";
+      }
+
+      function renderPreview() {
+        const files = getSelectedFiles();
+        if (!files.length) {
+          fileListDiv.textContent = "未选择文件";
+          return;
+        }
+        const total = files.reduce((s, f) => s + f.size, 0);
+        const lines = files
+          .slice(0, 100)
+          .map((f) => `${getRelativePath(f)}  (${formatSize(f.size)})`);
+        if (files.length > 100) {
+          lines.push(`... 另有 ${files.length - 100} 个文件未展示`);
+        }
+        fileListDiv.textContent =
+          `共 ${files.length} 个文件，合计 ${formatSize(total)}\n` +
+          lines.join("\n");
+      }
+
+      async function uploadOne(file, targetPath, overwritePolicy) {
+        const relativePath = getRelativePath(file);
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("targetPath", targetPath);
+        formData.append("relativePath", relativePath);
+        formData.append("overwritePolicy", overwritePolicy);
+
+        const response = await fetch(UPLOAD_URL, {
+          method: "POST",
+          body: formData,
+        });
+        const result = await response.json();
+        return { relativePath, result };
+      }
+
+      async function runWithConcurrency(items, limit, worker) {
+        const results = new Array(items.length);
+        let next = 0;
+        async function runner() {
+          while (next < items.length) {
+            const i = next++;
+            results[i] = await worker(items[i], i);
+          }
+        }
+        const runners = Array.from(
+          { length: Math.min(limit, items.length) },
+          () => runner(),
+        );
+        await Promise.all(runners);
+        return results;
+      }
+
+      modeRadios.forEach((r) => r.addEventListener("change", syncModeUI));
+      fileInput.addEventListener("change", renderPreview);
+      folderInput.addEventListener("change", renderPreview);
+      syncModeUI();
+
       submitBtn.addEventListener("click", async (e) => {
         e.preventDefault();
-        progressDiv.innerText = "";
-
-        submitBtn.setAttribute("disabled", true);
-        const fileInput = document.getElementById("fileInput");
-        const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
-        formData.append("targetPath", targetPathIpt.value);
-        formData.append("isReplace", isReplaceIpt?.value);
-
-        try {
-          const response = await fetch("./upload-base", {
-            method: "POST",
-            body: formData,
-          });
-
-          const result = await response.json();
-          console.info("上传结果:", result);
-          progressDiv.innerText =
-            "上传结果\n" + JSON.stringify(result, null, 2);
-        } catch (error) {
-          console.error("上传失败:", error);
-          progressDiv.innerText =
-            "上传失败\n" + JSON.stringify(result, null, 2);
+        const files = getSelectedFiles();
+        if (!files.length) {
+          progressDiv.textContent = "请先选择文件或文件夹";
+          return;
         }
-        if (isReplaceIpt?.value) {
-          isReplaceIpt.value = "";
-        }
-        submitBtn.removeAttribute("disabled");
+
+        submitBtn.disabled = true;
+        const targetPath = targetPathIpt.value.trim();
+        const overwritePolicy = overwritePolicySel.value;
+        const concurrency = Math.max(
+          1,
+          Math.min(10, Number(concurrencyIpt.value) || 3),
+        );
+
+        let done = 0;
+        let success = 0;
+        let skipped = 0;
+        let failed = 0;
+        const details = [];
+
+        const updateProgress = () => {
+          progressDiv.textContent =
+            `进度 ${done}/${files.length} | 成功 ${success} | 跳过 ${skipped} | 失败 ${failed}\n\n` +
+            details.slice(-30).join("\n");
+        };
+        updateProgress();
+
+        await runWithConcurrency(files, concurrency, async (file) => {
+          const relativePath = getRelativePath(file);
+          try {
+            const { result } = await uploadOne(
+              file,
+              targetPath,
+              overwritePolicy,
+            );
+            if (result.code === 200) {
+              success++;
+              details.push(`✓ ${relativePath}`);
+            } else if (result.code === 409) {
+              skipped++;
+              details.push(`○ 跳过 ${relativePath}`);
+            } else {
+              failed++;
+              details.push(`✗ ${relativePath}: ${result.message}`);
+            }
+          } catch (err) {
+            failed++;
+            details.push(`✗ ${relativePath}: ${err.message || err}`);
+          }
+          done++;
+          updateProgress();
+        });
+
+        progressDiv.textContent =
+          `完成 ${files.length} 个文件 | 成功 ${success} | 跳过 ${skipped} | 失败 ${failed}\n\n` +
+          details.join("\n");
+        submitBtn.disabled = false;
       });
     </script>
   </body>

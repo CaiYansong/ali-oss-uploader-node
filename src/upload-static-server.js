@@ -69,8 +69,44 @@ app.use(async (ctx) => {
   }
 });
 
+/**
+ * 规范化相对路径：统一正斜杠，去掉前导 /，禁止 .. 与绝对路径
+ * @param {string} relativePath
+ * @returns {string|null} 合法路径；非法返回 null
+ */
+function normalizeRelativePath(relativePath) {
+  if (!relativePath || typeof relativePath !== "string") {
+    return null;
+  }
+  let rel = relativePath.replace(/\\/g, "/").trim();
+  rel = rel.replace(/^\/+/, "");
+  if (!rel) {
+    return null;
+  }
+  const segments = rel.split("/").filter((seg) => seg && seg !== ".");
+  if (segments.some((seg) => seg === "..")) {
+    return null;
+  }
+  return segments.join("/");
+}
+
+/**
+ * 清理临时上传文件
+ * @param {string} filepath
+ */
+function cleanupTempFile(filepath) {
+  if (!filepath) {
+    return;
+  }
+  fs.unlink(filepath, (err) => {
+    if (err && err.code !== "ENOENT") {
+      console.warn(`清理临时文件失败: ${filepath}`, err.message);
+    }
+  });
+}
+
 async function fileUpload(ctx, dir) {
-  const reqBody = ctx.request.body;
+  const reqBody = ctx.request.body || {};
   // 文件上传
   const file = ctx.request.files?.file;
   if (!file) {
@@ -81,26 +117,51 @@ async function fileUpload(ctx, dir) {
     };
     return;
   }
-  const targetPath = reqBody.targetPath;
+
   const fileName = file.originalFilename || file.name;
-  // reqBody.targetPath
-  const targetDir = path.join(dir, targetPath);
-  const targetFullPath = path.join(targetDir, fileName);
+  const targetPath = normalizeRelativePath(reqBody.targetPath || "") || "";
+  const relativePath =
+    normalizeRelativePath(reqBody.relativePath || "") ||
+    normalizeRelativePath(fileName);
+
+  if (!relativePath) {
+    cleanupTempFile(file.filepath);
+    ctx.body = {
+      code: 500,
+      message: "相对路径非法",
+      data: { name: fileName },
+    };
+    return;
+  }
+
+  // 使用 posix 拼接，避免 Windows 反斜杠进入 OSS key
+  const prefix = convertToOSSPath(dir).replace(/\/+$/, "") || "";
+  const targetFullPath = [prefix, targetPath, relativePath]
+    .filter(Boolean)
+    .join("/");
+
+  const overwritePolicy =
+    reqBody.overwritePolicy === "overwrite" ? "overwrite" : "skip";
+  // 兼容旧字段：isReplace === 文件名 视为覆盖
+  const shouldOverwrite =
+    overwritePolicy === "overwrite" || reqBody.isReplace === fileName;
 
   const hasFile = await checkFileExists(targetFullPath);
 
   const resData = {
     name: fileName,
+    relativePath,
     size: file.size,
     type: file.type,
     url: convertToOSSPath(targetFullPath),
   };
 
   // 检查文件是否存在
-  if (hasFile && reqBody.isReplace !== fileName) {
-    resData.url = hasFile.requestUrls?.[0];
+  if (hasFile && !shouldOverwrite) {
+    resData.url = hasFile.requestUrls?.[0] || resData.url;
+    cleanupTempFile(file.filepath);
     ctx.body = {
-      code: 500,
+      code: 409,
       message: "文件已存在",
       data: resData,
     };
@@ -119,14 +180,16 @@ async function fileUpload(ctx, dir) {
     resData.url = result.url;
 
     if (result.exists) {
+      cleanupTempFile(file.filepath);
       ctx.body = {
-        code: 500,
+        code: 409,
         message: "文件已存在",
         data: resData,
       };
       return;
     }
   } catch (error) {
+    cleanupTempFile(file.filepath);
     ctx.body = {
       code: 500,
       message: JSON.stringify(error),
@@ -134,6 +197,8 @@ async function fileUpload(ctx, dir) {
     };
     return;
   }
+
+  cleanupTempFile(file.filepath);
   logUtils.setLog(resData);
 
   ctx.body = {
